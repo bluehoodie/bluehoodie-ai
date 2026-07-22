@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "bluehoodie-ai",
+  "description": "Toy AI research: skills and plugins for poking at how language models behave.",
+  "owner": {
+    "name": "Colin Dickson",
+    "url": "https://github.com/bluehoodie"
+  },
+  "plugins": [
+    {
+      "name": "humors",
+      "description": "An artificial endocrine system: a persistent, slow-varying affective state that biases HOW Claude responds, never WHAT.",
+      "source": "./plugins/humors",
+      "category": "research"
+    }
+  ]
+}
