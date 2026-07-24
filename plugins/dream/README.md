@@ -79,10 +79,12 @@ Session starts
        ├─ Cooldown gate: stat nag file mtime, skip if < COOLDOWN_HOURS
        └─ All pass → inject additionalContext into session
             └─> Claude runs dream:dream skill after user's request
-                 ├─ Phase 1: Orient (read existing memories)
-                 ├─ Phase 2: Gather (daily logs, narrow transcript greps)
-                 ├─ Phase 3: Audit & Consolidate (write/merge/fix/delete)
-                 └─ Phase 4: Prune (trim MEMORY.md index) → stamp lock file
+                 └─> dispatches dream:dreamer subagent in background (paths + date)
+                      ├─ Phase 1: Orient (read existing memories)
+                      ├─ Phase 2: Gather (daily logs, narrow transcript greps)
+                      ├─ Phase 3: Audit & Consolidate (write/merge/fix/delete)
+                      ├─ Phase 4: Prune (trim MEMORY.md index) → stamp lock file
+                      └─ returns a short summary → relayed to you
 ```
 
 ### State
@@ -101,7 +103,9 @@ plugins/dream/
 ├── .claude-plugin/
 │   └── plugin.json              # Plugin manifest
 ├── skills/dream/
-│   └── SKILL.md                 # 4-phase consolidation prompt (/dream:dream)
+│   └── SKILL.md                 # Dispatcher — resolves paths, calls the agent (/dream:dream)
+├── agents/
+│   └── dreamer.md               # 4-phase consolidation prompt, model-pinned
 ├── commands/
 │   ├── dream-status.md          # /dream:dream-status
 │   └── dream-reset.md           # /dream:dream-reset
@@ -119,7 +123,16 @@ Run the gate logic self-check with `bash scripts/test-gate-check.sh` — it uses
 
 ## Background
 
-Claude Code has a built-in dream feature, gated behind feature flags, that runs as a forked background subagent with its own task UI. This plugin reproduces its published four-phase consolidation prompt using the public plugin API — a hook for auto-triggering, a skill for the consolidation prompt, and shell scripts for gate evaluation. The tradeoff: consolidation runs inline in your session rather than in the background, with no progress UI, but it works on any Claude Code install without feature flags.
+Claude Code has a built-in dream feature, gated behind feature flags, that runs as a forked background subagent with its own task UI. This plugin reproduces its published four-phase consolidation prompt using the public plugin API — a hook for auto-triggering, a skill that dispatches the work, an agent holding the consolidation prompt, and shell scripts for gate evaluation. Consolidation runs in the plugin's `dreamer` subagent, declared `background: true` and pinned to Sonnet, so it stays off an expensive session model, out of the main context window, and off the critical path — you keep working while it runs, and track it in `/tasks`. It needs no feature flags.
+
+### Agent tuning
+
+Both knobs live in the frontmatter of `agents/dreamer.md`:
+
+| Field | Default | Note |
+|-------|---------|------|
+| `model` | `sonnet` | Haiku is not recommended — staleness checking and merge-vs-dedupe are judgment calls |
+| `background` | `true` | Set `false` to make the session wait for the summary inline |
 
 ## License
 
