@@ -7,6 +7,8 @@ allowed-tools: Bash
 Reset the dream plugin state:
 
 ```bash
-rm -f "$HOME/.claude/dream-plugin-state/.consolidate-lock" "$HOME/.claude/dream-plugin-state/.last-nag"
+rm -f "$HOME/.claude/dream-plugin-state/.consolidate-lock" \
+      "$HOME/.claude/dream-plugin-state/.last-nag" \
+      "$HOME/.claude/dream-plugin-state/.due"
 echo "Dream state reset. Gates will reopen on next session."
 ```

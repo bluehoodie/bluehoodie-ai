@@ -109,8 +109,13 @@ into it.
 Then stamp the consolidation so the time gate resets:
 
 ```bash
-mkdir -p ~/.claude/dream-plugin-state && touch ~/.claude/dream-plugin-state/.consolidate-lock
+mkdir -p ~/.claude/dream-plugin-state &&
+  touch ~/.claude/dream-plugin-state/.consolidate-lock &&
+  rm -f ~/.claude/dream-plugin-state/.due
 ```
+
+Removing `.due` clears the status line indicator immediately; `gate-check.sh`
+would otherwise not re-evaluate it until the next session starts.
 
 ## Memory file format
 

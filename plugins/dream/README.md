@@ -51,6 +51,20 @@ The gate script resolves the project directory from the `transcript_path` in the
 
 The final phase of the consolidation stamps the lock file itself, resetting the time gate.
 
+### Status line (opt-in)
+
+The SessionStart notice fires once and scrolls away. For a persistent reminder, add one line to your own status line script:
+
+```bash
+bash ~/.claude/plugins/dream/scripts/dream-segment.sh
+```
+
+It prints `💤 dream due — run /dream:dream` when consolidation is owed, and nothing otherwise — so it costs you a row only when there's something to do. Remove the line to uninstall.
+
+This is a snippet rather than a command that edits your settings because `settings.json` has exactly one `statusLine` slot, and it is probably already yours. A plugin cannot claim it: plugin `settings.json` supports only the `agent` and `subagentStatusLine` keys.
+
+The segment does no work of its own — status lines re-run on a 300ms debounce, far too often for the session gate's `find`. `gate-check.sh` writes the verdict to a marker file at SessionStart and the segment is a single file test. A running consolidation needs no segment at all: the `dreamer` subagent shows up in `/tasks` on its own.
+
 ### The 4-Phase Consolidation
 
 1. **Orient** — list memory files, read MEMORY.md, skim topic files and any `logs/` or `sessions/` subdirectories
@@ -95,6 +109,7 @@ All state lives in `~/.claude/dream-plugin-state/`:
 |------|---------|
 | `.consolidate-lock` | mtime = last consolidation timestamp |
 | `.last-nag` | mtime = last auto-trigger prompt |
+| `.due` | present = consolidation owed; read by the status line segment |
 
 ## Project Structure
 
@@ -113,8 +128,9 @@ plugins/dream/
 │   └── hooks.json               # SessionStart hook
 ├── scripts/
 │   ├── gate-check.sh            # Gate evaluation logic
+│   ├── dream-segment.sh         # Optional status line segment
 │   ├── dream-status.sh          # Diagnostic output
-│   └── test-gate-check.sh       # Gate logic self-check
+│   └── test-gate-check.sh       # Gate + segment self-check
 ├── LICENSE
 └── README.md
 ```

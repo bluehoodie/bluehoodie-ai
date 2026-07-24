@@ -5,6 +5,7 @@
 set -uo pipefail
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/gate-check.sh"
+SEGMENT="$(cd "$(dirname "$0")" && pwd)/dream-segment.sh"
 FAILED=0
 
 check() { # check <label> <expected: fire|quiet> <actual output>
@@ -76,5 +77,46 @@ check "cwd fallback resolves project dir" fire \
 # 8. Empty stdin must not crash (set -e + unbound-safe).
 setup 10 yes
 check "empty stdin does not crash" quiet "$(HOME="$SANDBOX" bash "$SCRIPT" </dev/null 2>&1)"
+
+# --- Status line marker (.due) ---
+# The segment script only tests for the marker, so what matters is that
+# gate-check.sh writes it exactly when consolidation is due and clears it
+# otherwise — including on the cooldown path, where the injection is
+# suppressed but the dream is still owed.
+
+due() { [ -f "$SANDBOX/.claude/dream-plugin-state/.due" ] && echo yes; }
+segment() { HOME="$SANDBOX" bash "$SEGMENT"; }
+
+# 9. Gates open → marker written, segment speaks.
+setup 10 yes
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "due marker written when gates open" fire "$(due)"
+check "segment renders when due" fire "$(segment)"
+
+# 10. Cooldown suppresses the nag but the dream is still owed — marker stays.
+setup 10 yes
+mkdir -p "$SANDBOX/.claude/dream-plugin-state"
+touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+touch "$SANDBOX/.claude/dream-plugin-state/.last-nag"
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "due marker survives cooldown" fire "$(due)"
+
+# 11. A stale marker is cleared once the lock is fresh again — this is what
+#     stops the status line nagging forever after a consolidation.
+setup 10 yes
+mkdir -p "$SANDBOX/.claude/dream-plugin-state"
+touch "$SANDBOX/.claude/dream-plugin-state/.due"
+touch "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "fresh lock clears stale due marker" quiet "$(due)"
+check "segment silent when not due" quiet "$(segment)"
+
+# 12. Too few sessions also clears it.
+setup 2 yes
+mkdir -p "$SANDBOX/.claude/dream-plugin-state"
+touch "$SANDBOX/.claude/dream-plugin-state/.due"
+touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "session gate clears stale due marker" quiet "$(due)"
 
 exit "$FAILED"

@@ -60,6 +60,9 @@ mkdir -p "$DREAM_STATE_DIR"
 
 LOCK_FILE="$DREAM_STATE_DIR/.consolidate-lock"
 NAG_FILE="$DREAM_STATE_DIR/.last-nag"
+# Marker read by dream-segment.sh. The status line re-runs on a 300ms debounce and
+# cannot afford the session gate's find, so the verdict is written here instead.
+DUE_FILE="$DREAM_STATE_DIR/.due"
 
 PROJECT_DIR="$(resolve_project_dir)"
 MEM_DIR="$PROJECT_DIR/memory"
@@ -75,6 +78,7 @@ now=$(date +%s)
 hours_since=$(( (now - last_consolidated) / 3600 ))
 
 if [ "$hours_since" -lt "$MIN_HOURS" ]; then
+  rm -f "$DUE_FILE"
   exit 0
 fi
 
@@ -87,8 +91,14 @@ else
 fi
 
 if [ "$session_count" -lt "$MIN_SESSIONS" ]; then
+  rm -f "$DUE_FILE"
   exit 0
 fi
+
+# Past this point consolidation IS due. The cooldown below only suppresses the
+# context injection, so the marker is written before it — a quiet session still
+# shows "dream due" in the status line.
+touch "$DUE_FILE"
 
 # --- Cooldown: Don't nag too often ---
 last_nag=0
