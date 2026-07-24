@@ -37,7 +37,7 @@ Asking for it in plain language — "dream", "consolidate my memory files" — i
 
 ### Auto-trigger
 
-A **SessionStart hook** skips silently if the project has no `memory/` directory, then checks three gates:
+A **SessionStart hook** checks three gates:
 
 | Gate | Default | What it checks |
 |------|---------|---------------|
@@ -46,6 +46,8 @@ A **SessionStart hook** skips silently if the project has no `memory/` directory
 | Cooldown | 8h | Prevents repeated prompts within a window |
 
 When all gates pass, Claude sees a context injection: "Memory consolidation is due," carrying the exact memory and transcript paths. It handles your request first, then consolidates.
+
+Having no memories yet is not a gate. A missing or empty `memory/` directory is the state of a project that has never dreamed — precisely the one whose first consolidation has memories to generate. The hook creates the directory if it is absent, since the `dreamer` agent deliberately does not.
 
 The gate script resolves the project directory from the `transcript_path` in the hook's stdin payload, falling back to slugifying the launch cwd. It does not use the git root — Claude Code keys projects off the directory you launched from, so a session started in a subdirectory of a repo has its own project directory.
 
@@ -93,7 +95,7 @@ Set via environment variables in your shell profile:
 ```
 Session starts
   └─> SessionStart hook fires gate-check.sh (project dir from stdin transcript_path)
-       ├─ Memory dir:    skip if this project has no memory/ directory
+       ├─ Memory dir:    mkdir -p memory/ (absent or empty is not a gate)
        ├─ Time gate:     stat lock file mtime, skip if < MIN_HOURS
        ├─ Session gate:  find transcripts newer than lock, skip if < MIN_SESSIONS  
        ├─ Cooldown gate: stat nag file mtime, skip if < COOLDOWN_HOURS
@@ -117,7 +119,7 @@ State lives in `~/.claude/dream-plugin-state/<project-slug>/`, keyed by the same
 | `.last-nag` | mtime = last auto-trigger prompt |
 | `.due` | present = consolidation owed; read by the status line segment |
 
-A project only gets a state directory once it has a `memory/` directory, so projects that never dream leave nothing behind.
+Every project the hook runs in gets a state directory once its time gate opens — including one with no memories yet, which is how a first consolidation ever gets triggered.
 
 ## Project Structure
 

@@ -58,9 +58,10 @@ mtime() {
 PROJECT_DIR="$(resolve_project_dir)"
 MEM_DIR="$PROJECT_DIR/memory"
 
-# Nothing to consolidate if this project has no memory directory. Checked before
-# the state directory is created, so projects that never dream leave no state.
-[ -d "$MEM_DIR" ] || exit 0
+# No memory directory / an empty one is NOT a gate: that is a project that has
+# never dreamed, which is exactly when the first consolidation should run. Create
+# it so the dreamer has somewhere to write (the agent deliberately does not mkdir).
+mkdir -p "$MEM_DIR"
 
 # State is per-project, keyed by the same slug Claude Code uses for the transcript
 # directory. Memories are per-project, so the gates must be too: a global lock let
