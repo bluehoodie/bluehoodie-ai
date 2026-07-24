@@ -7,11 +7,19 @@ set -euo pipefail
 MIN_HOURS="${DREAM_MIN_HOURS:-24}"
 MIN_SESSIONS="${DREAM_MIN_SESSIONS:-5}"
 
-DREAM_STATE_DIR="$HOME/.claude/dream-plugin-state"
+# Claude Code slugifies the launch cwd, not the git root — a session started in a
+# subdirectory of a repo gets its own project directory. State is keyed by the
+# same slug, so each project's gates are independent.
+slug="$(printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}" | sed 's|/|-|g')"
+transcript_dir="$HOME/.claude/projects/${slug}"
+
+DREAM_STATE_DIR="$HOME/.claude/dream-plugin-state/${slug}"
 LOCK_FILE="$DREAM_STATE_DIR/.consolidate-lock"
 NAG_FILE="$DREAM_STATE_DIR/.last-nag"
 
 echo "=== Dream Plugin Status ==="
+echo ""
+echo "Project:             $slug"
 echo ""
 
 # Last consolidation
@@ -39,11 +47,6 @@ fi
 echo ""
 
 # Session count.
-# Claude Code slugifies the launch cwd, not the git root — a session started in a
-# subdirectory of a repo gets its own project directory.
-slug="$(printf '%s' "${CLAUDE_PROJECT_DIR:-$PWD}" | sed 's|/|-|g')"
-transcript_dir="$HOME/.claude/projects/${slug}"
-
 session_count=0
 if [ -d "$transcript_dir" ]; then
   if [ -f "$LOCK_FILE" ]; then
