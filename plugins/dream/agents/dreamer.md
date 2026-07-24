@@ -108,10 +108,12 @@ into it.
 
 Then stamp the consolidation so the time gate resets:
 
+State is per-project, keyed by the basename of the transcript directory you were
+given — so stamp that project's state, not a global one:
+
 ```bash
-mkdir -p ~/.claude/dream-plugin-state &&
-  touch ~/.claude/dream-plugin-state/.consolidate-lock &&
-  rm -f ~/.claude/dream-plugin-state/.due
+STATE="$HOME/.claude/dream-plugin-state/$(basename <transcript-directory>)"
+mkdir -p "$STATE" && touch "$STATE/.consolidate-lock" && rm -f "$STATE/.due"
 ```
 
 Removing `.due` clears the status line indicator immediately; `gate-check.sh`

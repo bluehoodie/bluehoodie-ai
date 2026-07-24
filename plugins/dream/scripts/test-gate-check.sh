@@ -23,6 +23,7 @@ check() { # check <label> <expected: fire|quiet> <actual output>
 setup() { # setup <n_transcripts> <with_memory_dir>
   SANDBOX="$(mktemp -d)"
   PROJ="$SANDBOX/.claude/projects/-fake-proj"
+  STATE="$SANDBOX/.claude/dream-plugin-state/-fake-proj"   # per-project, not global
   mkdir -p "$PROJ"
   [ "$2" = yes ] && mkdir -p "$PROJ/memory"
   local i
@@ -49,22 +50,21 @@ check "2 sessions stays quiet" quiet "$(run "${payload/PROJ/$PROJ}")"
 
 # 4. Time gate closed — lock file is fresh.
 setup 10 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+mkdir -p "$STATE"
+touch "$STATE/.consolidate-lock"
 check "fresh lock stays quiet" quiet "$(run "${payload/PROJ/$PROJ}")"
 
 # 5. Cooldown gate — old lock, but nagged just now.
 setup 10 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
-touch "$SANDBOX/.claude/dream-plugin-state/.last-nag"
+mkdir -p "$STATE"
+touch -t 202001010000 "$STATE/.consolidate-lock"
+touch "$STATE/.last-nag"
 check "recent nag stays quiet" quiet "$(run "${payload/PROJ/$PROJ}")"
 
 # 6. Sessions are only counted if newer than the lock.
 setup 10 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"   # newer than transcripts
-touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+mkdir -p "$STATE"
+touch -t 202001010000 "$STATE/.consolidate-lock"
 touch -t 201901010000 "$PROJ"/*.jsonl                            # all older than lock
 check "transcripts older than lock don't count" quiet "$(run "${payload/PROJ/$PROJ}")"
 
@@ -84,8 +84,9 @@ check "empty stdin does not crash" quiet "$(HOME="$SANDBOX" bash "$SCRIPT" </dev
 # otherwise — including on the cooldown path, where the injection is
 # suppressed but the dream is still owed.
 
-due() { [ -f "$SANDBOX/.claude/dream-plugin-state/.due" ] && echo yes; }
-segment() { HOME="$SANDBOX" bash "$SEGMENT"; }
+due() { [ -f "$STATE/.due" ] && echo yes; }
+# The segment slugifies the launch directory it is given; /fake/proj → -fake-proj.
+segment() { HOME="$SANDBOX" bash "$SEGMENT" /fake/proj; }
 
 # 9. Gates open → marker written, segment speaks.
 setup 10 yes
@@ -95,28 +96,72 @@ check "segment renders when due" fire "$(segment)"
 
 # 10. Cooldown suppresses the nag but the dream is still owed — marker stays.
 setup 10 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
-touch "$SANDBOX/.claude/dream-plugin-state/.last-nag"
+mkdir -p "$STATE"
+touch -t 202001010000 "$STATE/.consolidate-lock"
+touch "$STATE/.last-nag"
 run "${payload/PROJ/$PROJ}" >/dev/null
 check "due marker survives cooldown" fire "$(due)"
 
 # 11. A stale marker is cleared once the lock is fresh again — this is what
 #     stops the status line nagging forever after a consolidation.
 setup 10 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch "$SANDBOX/.claude/dream-plugin-state/.due"
-touch "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+mkdir -p "$STATE"
+touch "$STATE/.due"
+touch "$STATE/.consolidate-lock"
 run "${payload/PROJ/$PROJ}" >/dev/null
 check "fresh lock clears stale due marker" quiet "$(due)"
 check "segment silent when not due" quiet "$(segment)"
 
 # 12. Too few sessions also clears it.
 setup 2 yes
-mkdir -p "$SANDBOX/.claude/dream-plugin-state"
-touch "$SANDBOX/.claude/dream-plugin-state/.due"
-touch -t 202001010000 "$SANDBOX/.claude/dream-plugin-state/.consolidate-lock"
+mkdir -p "$STATE"
+touch "$STATE/.due"
+touch -t 202001010000 "$STATE/.consolidate-lock"
 run "${payload/PROJ/$PROJ}" >/dev/null
 check "session gate clears stale due marker" quiet "$(due)"
+
+# --- Per-project isolation ---
+# Gates are keyed by project slug because memories are per-project. A global lock
+# meant dreaming in one project silenced every other one for MIN_HOURS, and the
+# first project opened after the window consumed it for all of them.
+
+# 13. A fresh consolidation in project A must not close project B's gates.
+setup 10 yes
+OTHER="$SANDBOX/.claude/projects/-other-proj"
+mkdir -p "$OTHER/memory"
+for i in 0 1 2 3 4 5 6 7 8 9; do : > "$OTHER/session-$i.jsonl"; done
+mkdir -p "$SANDBOX/.claude/dream-plugin-state/-other-proj"
+touch "$SANDBOX/.claude/dream-plugin-state/-other-proj/.consolidate-lock"
+check "another project's fresh lock does not gate this one" fire \
+  "$(run "${payload/PROJ/$PROJ}")"
+
+# 14. ...and the converse: this project's own fresh lock still gates it, so the
+#     isolation above is real rather than the lock being ignored entirely.
+mkdir -p "$STATE"
+touch "$STATE/.consolidate-lock"
+check "own fresh lock still gates" quiet "$(run "${payload/PROJ/$PROJ}")"
+
+# 15. Marker files are per-project too — project A's .due must not light up the
+#     segment for project B.
+setup 10 yes
+mkdir -p "$SANDBOX/.claude/dream-plugin-state/-other-proj"
+touch "$SANDBOX/.claude/dream-plugin-state/-other-proj/.due"
+check "segment ignores another project's due marker" quiet \
+  "$(HOME="$SANDBOX" bash "$SEGMENT" /fake/proj)"
+
+# 16. Nothing is ever written to the old global path. Tests 13 and 15 state the
+#     cross-project contract but cannot detect a regression to global state —
+#     under a global implementation the per-project files they seed are simply
+#     never read, so they still pass. This one fails the moment state moves back.
+setup 10 yes
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "no state written to the global path" quiet \
+  "$(ls -A "$SANDBOX/.claude/dream-plugin-state/" 2>/dev/null | grep -v '^-fake-proj$')"
+
+# 17. A project with no memory directory leaves no state behind at all.
+setup 10 no
+run "${payload/PROJ/$PROJ}" >/dev/null
+check "no memory dir leaves no state dir" quiet \
+  "$([ -d "$SANDBOX/.claude/dream-plugin-state" ] && echo yes)"
 
 exit "$FAILED"

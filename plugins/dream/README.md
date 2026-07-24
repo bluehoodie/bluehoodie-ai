@@ -61,6 +61,12 @@ bash ~/.claude/plugins/dream/scripts/dream-segment.sh
 
 It prints `💤 dream due — run /dream:dream` when consolidation is owed, and nothing otherwise — so it costs you a row only when there's something to do. Remove the line to uninstall.
 
+It reads the marker for the launch directory, defaulting to `$PWD`. If your sessions `cd` away from where Claude Code was launched, pass the directory explicitly:
+
+```bash
+bash ~/.claude/plugins/dream/scripts/dream-segment.sh "$(jq -r .workspace.project_dir <<<"$input")"
+```
+
 This is a snippet rather than a command that edits your settings because `settings.json` has exactly one `statusLine` slot, and it is probably already yours. A plugin cannot claim it: plugin `settings.json` supports only the `agent` and `subagentStatusLine` keys.
 
 The segment does no work of its own — status lines re-run on a 300ms debounce, far too often for the session gate's `find`. `gate-check.sh` writes the verdict to a marker file at SessionStart and the segment is a single file test. A running consolidation needs no segment at all: the `dreamer` subagent shows up in `/tasks` on its own.
@@ -103,13 +109,15 @@ Session starts
 
 ### State
 
-All state lives in `~/.claude/dream-plugin-state/`:
+State lives in `~/.claude/dream-plugin-state/<project-slug>/`, keyed by the same slug Claude Code uses for the transcript directory — memories are per-project, so the gates are too. Consolidating one project never silences another.
 
 | File | Purpose |
 |------|---------|
 | `.consolidate-lock` | mtime = last consolidation timestamp |
 | `.last-nag` | mtime = last auto-trigger prompt |
 | `.due` | present = consolidation owed; read by the status line segment |
+
+A project only gets a state directory once it has a `memory/` directory, so projects that never dream leave nothing behind.
 
 ## Project Structure
 
