@@ -17,6 +17,7 @@ Not intended for production use.
 | plugin | what it does |
 |---|---|
 | [`humors`](plugins/humors) | An artificial endocrine system. A persistent, slow-varying affective state — arousal, valence, stress, affiliation, fatigue, dopamine — that decays in real time and biases *how* Claude responds, never *what*. Doubles as a confabulation testbed. |
+| [`dream`](plugins/dream) | Periodic memory consolidation. A SessionStart hook watches time/session/cooldown gates, then runs a four-phase pass — orient, gather, consolidate, prune — over Claude Code's file-based memory so it stays useful instead of accumulating drift. |
 
 ## Adding a plugin
 

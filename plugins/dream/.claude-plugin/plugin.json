@@ -1,0 +1,15 @@
+{
+  "name": "dream",
+  "description": "Periodic memory consolidation — review, deduplication, pruning, and reindexing of Claude Code's file-based memory system.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "author": {
+    "name": "Colin Dickson",
+    "url": "https://github.com/bluehoodie"
+  },
+  "homepage": "https://github.com/bluehoodie/bluehoodie-ai/tree/main/plugins/dream",
+  "keywords": ["memory", "consolidation", "maintenance", "dream"],
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
