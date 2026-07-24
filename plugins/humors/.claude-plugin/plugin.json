@@ -1,6 +1,6 @@
 {
   "name": "humors",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An artificial endocrine system for language models: a persistent, slow-varying affective state that biases HOW Claude responds, never WHAT.",
   "author": {
     "name": "Colin Dickson",
@@ -8,6 +8,5 @@
   },
   "homepage": "https://github.com/bluehoodie/bluehoodie-ai/tree/main/plugins/humors",
   "license": "MIT",
-  "keywords": ["affect", "neuromodulation", "mood", "research"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["affect", "neuromodulation", "mood", "research"]
 }
