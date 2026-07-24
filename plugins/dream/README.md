@@ -43,9 +43,13 @@ A **SessionStart hook** checks three gates:
 |------|---------|---------------|
 | Time | 24h | Hours since last consolidation |
 | Sessions | 5 | New session transcripts since last run, counting the one starting |
-| Cooldown | 8h | Prevents repeated prompts within a window |
+| Cooldown | 8h | Prevents repeated launches within a window |
 
-When all gates pass, Claude sees a context injection: "Memory consolidation is due," carrying the exact memory and transcript paths. It handles your request first, then consolidates.
+When all gates pass the hook **launches the dream itself**, as a detached headless `claude -p` session running the `dreamer` prompt against this project's memory directory. Your session is told a consolidation started and otherwise carries on; the dream writes memories, stamps the lock, and exits on its own. Output lands in `last-run.log` in the project's state directory.
+
+It used to only inject "Memory consolidation is due, use the dream:dream skill" and leave the session to act on it. Injected context is advisory, and a deferred instruction competes with whatever you actually asked for: across the 25 sessions where that notice fired, it was acted on zero times. A gate that opens has to start something itself.
+
+The launched session runs with `DREAM_CHILD=1`, which makes `gate-check.sh` a no-op — it is Claude Code, so it fires SessionStart too, and without the guard that recurses without bound. The cooldown gate is the failure backstop: the lock is stamped by the dreamer at the *end*, so a run that dies partway never closes the time gate, and only the cooldown stops every following session from launching another. If no `claude` is found on `PATH`, the hook falls back to the old advisory notice.
 
 Having no memories yet is not a gate. A missing or empty `memory/` directory is the state of a project that has never dreamed — precisely the one whose first consolidation has memories to generate. The hook creates the directory if it is absent, since the `dreamer` agent deliberately does not.
 
@@ -57,7 +61,7 @@ The final phase of the consolidation stamps the lock file itself, resetting the 
 
 ### Status line (opt-in)
 
-The SessionStart notice fires once and scrolls away. For a persistent reminder, add one line to your own status line script:
+The cooldown means a dream is owed for up to 8h before the hook launches one. For a visible reminder in the meantime, add one line to your own status line script:
 
 ```bash
 bash ~/.claude/plugins/dream/scripts/dream-segment.sh
@@ -73,7 +77,7 @@ bash ~/.claude/plugins/dream/scripts/dream-segment.sh "$(jq -r .workspace.projec
 
 This is a snippet rather than a command that edits your settings because `settings.json` has exactly one `statusLine` slot, and it is probably already yours. A plugin cannot claim it: plugin `settings.json` supports only the `agent` and `subagentStatusLine` keys.
 
-The segment does no work of its own — status lines re-run on a 300ms debounce, far too often for the session gate's `find`. `gate-check.sh` writes the verdict to a marker file at SessionStart and the segment is a single file test. A running consolidation needs no segment at all: the `dreamer` subagent shows up in `/tasks` on its own.
+The segment does no work of its own — status lines re-run on a 300ms debounce, far too often for the session gate's `find`. `gate-check.sh` writes the verdict to a marker file at SessionStart and the segment is a single file test. The marker clears when the dream stamps the lock, so it goes quiet on its own once a consolidation lands.
 
 ### The 4-Phase Consolidation
 
@@ -90,7 +94,8 @@ Set via environment variables in your shell profile:
 |----------|---------|-------------|
 | `DREAM_MIN_HOURS` | `24` | Hours between consolidations |
 | `DREAM_MIN_SESSIONS` | `5` | New sessions needed to trigger |
-| `DREAM_COOLDOWN_HOURS` | `8` | Hours between auto-trigger prompts |
+| `DREAM_COOLDOWN_HOURS` | `8` | Hours between auto-launches |
+| `DREAM_CLAUDE_BIN` | `claude` | Executable used to launch the headless dream |
 
 ## How It Works
 
@@ -102,15 +107,18 @@ Session starts
        ├─ Session gate:  find transcripts newer than lock, +1 for this session,
        │                 skip if < MIN_SESSIONS
        ├─ Cooldown gate: stat nag file mtime, skip if < COOLDOWN_HOURS
-       └─ All pass → inject additionalContext into session
-            └─> Claude runs dream:dream skill after user's request
-                 └─> dispatches dream:dreamer subagent in background (paths + date)
-                      ├─ Phase 1: Orient (read existing memories)
-                      ├─ Phase 2: Gather (daily logs, narrow transcript greps)
-                      ├─ Phase 3: Audit & Consolidate (write/merge/fix/delete)
-                      ├─ Phase 4: Prune (trim MEMORY.md index) → stamp lock file
-                      └─ returns a short summary → relayed to you
+       └─ All pass → launch detached `claude -p` running agents/dreamer.md
+            │         (DREAM_CHILD=1 so its own hook is a no-op; log to state dir)
+            ├─> hook returns immediately, your session is told a dream started
+            └─> the detached dream, on its own:
+                 ├─ Phase 1: Orient (read existing memories)
+                 ├─ Phase 2: Gather (daily logs, narrow transcript greps)
+                 ├─ Phase 3: Audit & Consolidate (write/merge/fix/delete)
+                 ├─ Phase 4: Prune (trim MEMORY.md index) → stamp lock, clear .due
+                 └─ summary written to last-run.log
 ```
+
+`/dream:dream` still dispatches the `dreamer` subagent inside your session, for when you want to consolidate on demand and see the summary.
 
 ### State
 
@@ -119,8 +127,9 @@ State lives in `~/.claude/dream-plugin-state/<project-slug>/`, keyed by the same
 | File | Purpose |
 |------|---------|
 | `.consolidate-lock` | mtime = last consolidation timestamp |
-| `.last-nag` | mtime = last auto-trigger prompt |
+| `.last-nag` | mtime = last auto-launch; caps launches to one per COOLDOWN_HOURS |
 | `.due` | present = consolidation owed; read by the status line segment |
+| `last-run.log` | output of the most recent auto-launched dream |
 
 Every project the hook runs in gets a state directory once its time gate opens — including one with no memories yet, which is how a first consolidation ever gets triggered.
 
@@ -152,7 +161,7 @@ Run the gate logic self-check with `bash scripts/test-gate-check.sh` — it uses
 
 ## Background
 
-Claude Code has a built-in dream feature, gated behind feature flags, that runs as a forked background subagent with its own task UI. This plugin reproduces its published four-phase consolidation prompt using the public plugin API — a hook for auto-triggering, a skill that dispatches the work, an agent holding the consolidation prompt, and shell scripts for gate evaluation. Consolidation runs in the plugin's `dreamer` subagent, declared `background: true` and pinned to Sonnet, so it stays off an expensive session model, out of the main context window, and off the critical path — you keep working while it runs, and track it in `/tasks`. It needs no feature flags.
+Claude Code has a built-in dream feature, gated behind feature flags, that runs as a forked background subagent with its own task UI. This plugin reproduces its published four-phase consolidation prompt using the public plugin API — a hook that evaluates the gates and launches the work, an agent holding the consolidation prompt, and a skill for running it on demand. Either way the consolidation is pinned to Sonnet and runs off the critical path: auto-triggered it is a detached headless session, on demand it is a `background: true` subagent you track in `/tasks`. Both keep it off an expensive session model and out of the main context window. It needs no feature flags.
 
 ### Agent tuning
 
