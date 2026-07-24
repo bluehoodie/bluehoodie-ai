@@ -4,7 +4,8 @@
 #
 # Gate order (cheapest first):
 #   1. Time: hours since last consolidation >= MIN_HOURS
-#   2. Sessions: transcript count with mtime > last consolidation >= MIN_SESSIONS
+#   2. Sessions: transcripts with mtime > last consolidation, plus the session
+#      being started, >= MIN_SESSIONS
 #   3. Cooldown: don't nag more than once per COOLDOWN_HOURS
 #
 # Hook input arrives as JSON on stdin (transcript_path, cwd, ...) and that is how
@@ -32,14 +33,17 @@ json_field() {
     sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
 
+# This session's transcript. Note it does not exist yet at SessionStart — see the
+# session gate below, which has to account for that.
+TRANSCRIPT_PATH="$(json_field transcript_path)"
+
 # Resolve the project transcript directory. Preferred source is transcript_path
 # from the hook payload — that file lives in the directory we want. Fall back to
 # slugifying cwd the way Claude Code does (every "/" becomes "-").
 resolve_project_dir() {
-  local transcript_path cwd
-  transcript_path="$(json_field transcript_path)"
-  if [ -n "$transcript_path" ]; then
-    dirname "$transcript_path"
+  local cwd
+  if [ -n "$TRANSCRIPT_PATH" ]; then
+    dirname "$TRANSCRIPT_PATH"
     return
   fi
   cwd="$(json_field cwd)"
@@ -94,6 +98,15 @@ if [ -f "$LOCK_FILE" ]; then
   session_count=$(find "$PROJECT_DIR" -maxdepth 1 -name "*.jsonl" -newer "$LOCK_FILE" 2>/dev/null | wc -l | tr -d ' ')
 else
   session_count=$(find "$PROJECT_DIR" -maxdepth 1 -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+fi
+
+# The find above cannot see the session we are starting: SessionStart runs before
+# Claude Code creates its transcript. Count it anyway, or the gate opens a whole
+# session late — and dream-status.sh, run mid-session once the file exists, reports
+# OPEN while the hook that just ran said otherwise. Skip the bump when the file is
+# already there (resume and compact reuse an existing transcript) so it counts once.
+if [ -z "$TRANSCRIPT_PATH" ] || [ ! -e "$TRANSCRIPT_PATH" ]; then
+  session_count=$(( session_count + 1 ))
 fi
 
 if [ "$session_count" -lt "$MIN_SESSIONS" ]; then

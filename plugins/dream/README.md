@@ -42,12 +42,14 @@ A **SessionStart hook** checks three gates:
 | Gate | Default | What it checks |
 |------|---------|---------------|
 | Time | 24h | Hours since last consolidation |
-| Sessions | 5 | New session transcripts since last run |
+| Sessions | 5 | New session transcripts since last run, counting the one starting |
 | Cooldown | 8h | Prevents repeated prompts within a window |
 
 When all gates pass, Claude sees a context injection: "Memory consolidation is due," carrying the exact memory and transcript paths. It handles your request first, then consolidates.
 
 Having no memories yet is not a gate. A missing or empty `memory/` directory is the state of a project that has never dreamed — precisely the one whose first consolidation has memories to generate. The hook creates the directory if it is absent, since the `dreamer` agent deliberately does not.
+
+The session count includes the session being started. SessionStart runs before Claude Code creates that session's transcript, so counting only the files on disk would open the gate a session late — and `dream-status.sh`, run mid-session once the file exists, would report the gate OPEN while the hook that had just run stayed quiet.
 
 The gate script resolves the project directory from the `transcript_path` in the hook's stdin payload, falling back to slugifying the launch cwd. It does not use the git root — Claude Code keys projects off the directory you launched from, so a session started in a subdirectory of a repo has its own project directory.
 
@@ -97,7 +99,8 @@ Session starts
   └─> SessionStart hook fires gate-check.sh (project dir from stdin transcript_path)
        ├─ Memory dir:    mkdir -p memory/ (absent or empty is not a gate)
        ├─ Time gate:     stat lock file mtime, skip if < MIN_HOURS
-       ├─ Session gate:  find transcripts newer than lock, skip if < MIN_SESSIONS  
+       ├─ Session gate:  find transcripts newer than lock, +1 for this session,
+       │                 skip if < MIN_SESSIONS
        ├─ Cooldown gate: stat nag file mtime, skip if < COOLDOWN_HOURS
        └─ All pass → inject additionalContext into session
             └─> Claude runs dream:dream skill after user's request

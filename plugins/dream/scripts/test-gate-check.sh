@@ -164,4 +164,32 @@ check "no state written to the global path" quiet \
 setup 10 yes
 check "empty memory dir fires" fire "$(run "${payload/PROJ/$PROJ}")"
 
+# --- The session gate must count the session it is running in ---
+# SessionStart fires *before* Claude Code creates this session's transcript, so
+# the file named by transcript_path does not exist yet. Counting only what is on
+# disk therefore dropped the current session and the nag arrived a session late:
+# at MIN_SESSIONS-1 the hook stayed quiet, and by the time the status command was
+# run mid-session the same find saw one more file and reported the gate OPEN.
+#
+# Every payload above names a transcript that setup() created, which is why the
+# suite never caught this. This payload names one it did not.
+payload_new='{"hook_event_name":"SessionStart","transcript_path":"PROJ/session-new.jsonl","cwd":"/fake/proj"}'
+
+# 18. MIN_SESSIONS-1 on disk plus the session being started reaches the threshold.
+setup 4 yes
+check "current session counts toward the session gate" fire \
+  "$(run "${payload_new/PROJ/$PROJ}")"
+
+# 19. ...and it is worth exactly one session, not a free pass through the gate.
+setup 3 yes
+check "current session is worth one, not more" quiet \
+  "$(run "${payload_new/PROJ/$PROJ}")"
+
+# 20. A resumed or compacted session already has its transcript on disk, so it is
+#     in the find count already. Adding it again would fire the nag a session
+#     early — the bump has to be conditional on the file's absence.
+setup 4 yes
+check "transcript already on disk is not counted twice" quiet \
+  "$(run "${payload/PROJ/$PROJ}")"
+
 exit "$FAILED"
