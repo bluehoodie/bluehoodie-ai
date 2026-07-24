@@ -36,9 +36,10 @@ run() { # run <stdin payload> — echoes hook output, empty if gates closed
 
 payload='{"hook_event_name":"SessionStart","transcript_path":"PROJ/session-0.jsonl","cwd":"/fake/proj"}'
 
-# 1. No memory directory → never fires, no matter how many sessions.
+# 1. No memory directory → still fires, and creates the dir for the dreamer.
 setup 10 no
-check "no memory dir stays quiet" quiet "$(run "${payload/PROJ/$PROJ}")"
+check "no memory dir still fires" fire "$(run "${payload/PROJ/$PROJ}")"
+check "no memory dir gets created" fire "$([ -d "$PROJ/memory" ] && echo yes)"
 
 # 2. All gates open (no lock file = never consolidated, 10 sessions).
 setup 10 yes
@@ -158,10 +159,9 @@ run "${payload/PROJ/$PROJ}" >/dev/null
 check "no state written to the global path" quiet \
   "$(ls -A "$SANDBOX/.claude/dream-plugin-state/" 2>/dev/null | grep -v '^-fake-proj$')"
 
-# 17. A project with no memory directory leaves no state behind at all.
-setup 10 no
-run "${payload/PROJ/$PROJ}" >/dev/null
-check "no memory dir leaves no state dir" quiet \
-  "$([ -d "$SANDBOX/.claude/dream-plugin-state" ] && echo yes)"
+# 17. An empty memory directory is not a gate — a project with zero memories is
+#     precisely the one that needs a first consolidation to generate some.
+setup 10 yes
+check "empty memory dir fires" fire "$(run "${payload/PROJ/$PROJ}")"
 
 exit "$FAILED"
