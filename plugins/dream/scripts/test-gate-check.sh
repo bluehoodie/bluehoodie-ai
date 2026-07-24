@@ -192,4 +192,51 @@ setup 4 yes
 check "transcript already on disk is not counted twice" quiet \
   "$(run "${payload/PROJ/$PROJ}")"
 
+# --- Launching the dream ---
+# The whole point of the gate: an open gate must START a consolidation, not
+# suggest one. The old hook only injected "consolidation is due" text, which the
+# session was free to ignore — and did, in 25 out of 25 sessions.
+#
+# A stub stands in for the claude binary so the suite never spawns a real
+# session; it records that it was called, with what, and in what environment.
+
+stub_claude() { # stub_claude — install stub, echo its path
+  cat >"$SANDBOX/claude-stub" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$SANDBOX/launched"
+printf 'DREAM_CHILD=%s\n' "${DREAM_CHILD:-unset}" >> "$SANDBOX/launched"
+STUB
+  chmod +x "$SANDBOX/claude-stub"
+}
+
+launch() { # launch <stdin payload> — run with the stub, wait for the detached child
+  stub_claude
+  HOME="$SANDBOX" SANDBOX="$SANDBOX" DREAM_CLAUDE_BIN="$SANDBOX/claude-stub" \
+    bash "$SCRIPT" <<<"$1" >/dev/null 2>&1
+  local i                          # the launch is backgrounded; give it a moment
+  for ((i = 0; i < 50; i++)); do [ -f "$SANDBOX/launched" ] && break; sleep 0.1; done
+  cat "$SANDBOX/launched" 2>/dev/null
+}
+
+# 21. Open gates launch a headless dream, pointed at this project's directories.
+setup 10 yes
+launched="$(launch "${payload/PROJ/$PROJ}")"
+check "open gates launch a dream" fire "$launched"
+check "launch is headless (-p)" fire "$(grep -- '^-p ' <<<"$launched")"
+check "launch targets this project's memory dir" fire \
+  "$(grep -F "$PROJ/memory" <<<"$launched")"
+
+# 22. The launched session must not launch another one: it runs Claude Code,
+#     which fires SessionStart, which runs this script again. Without the guard
+#     that recurses without bound.
+check "launch marks the child as DREAM_CHILD" fire "$(grep '^DREAM_CHILD=1$' <<<"$launched")"
+setup 10 yes
+check "a dream session never starts a dream" quiet \
+  "$(HOME="$SANDBOX" DREAM_CHILD=1 bash "$SCRIPT" <<<"${payload/PROJ/$PROJ}" 2>&1)"
+
+# 23. Closed gates launch nothing — the gates still have to mean something.
+setup 2 yes
+launch "${payload/PROJ/$PROJ}" >/dev/null
+check "closed gates launch nothing" quiet "$([ -f "$SANDBOX/launched" ] && echo yes)"
+
 exit "$FAILED"

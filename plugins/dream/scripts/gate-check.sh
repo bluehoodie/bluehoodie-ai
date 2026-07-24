@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Dream gate check — called by SessionStart hook.
-# Checks time + session gates. Outputs JSON with additionalContext if dream is due.
+# Checks time + session gates. When they all pass it LAUNCHES the dream, as a
+# detached headless `claude -p` session, and reports that in additionalContext.
+#
+# It used to only inject "consolidation is due, use the dream:dream skill".
+# Injected context is advisory: across the 25 sessions where that notice fired,
+# it was acted on zero times. A gate that opens has to start something itself.
 #
 # Gate order (cheapest first):
 #   1. Time: hours since last consolidation >= MIN_HOURS
@@ -16,13 +21,22 @@
 # Environment:
 #   DREAM_MIN_HOURS    — minimum hours between consolidations (default: 24)
 #   DREAM_MIN_SESSIONS — minimum new sessions required (default: 5)
-#   DREAM_COOLDOWN_HOURS — hours between nag injections (default: 8)
+#   DREAM_COOLDOWN_HOURS — hours between dream launches (default: 8)
+#   DREAM_CLAUDE_BIN   — claude executable to launch (default: claude)
+#   DREAM_CHILD        — set by the launch below; makes this script a no-op so a
+#                        dream session cannot start another dream session
 
 set -euo pipefail
+
+# The headless dream runs Claude Code, which fires SessionStart, which runs this
+# script. Without this guard that is an unbounded fork bomb of dreams.
+[ -n "${DREAM_CHILD:-}" ] && exit 0
 
 MIN_HOURS="${DREAM_MIN_HOURS:-24}"
 MIN_SESSIONS="${DREAM_MIN_SESSIONS:-5}"
 COOLDOWN_HOURS="${DREAM_COOLDOWN_HOURS:-8}"
+CLAUDE_BIN="${DREAM_CLAUDE_BIN:-claude}"
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 INPUT="$(cat 2>/dev/null || true)"
 
@@ -119,7 +133,10 @@ fi
 # shows "dream due" in the status line.
 touch "$DUE_FILE"
 
-# --- Cooldown: Don't nag too often ---
+# --- Cooldown: Don't launch too often ---
+# This is also the failure backstop. The lock is stamped by the dreamer when it
+# finishes, so a run that dies partway never closes the time gate; without the
+# cooldown every subsequent session would launch another one.
 last_nag=0
 [ -f "$NAG_FILE" ] && last_nag=$(mtime "$NAG_FILE")
 nag_hours_since=$(( (now - last_nag) / 3600 ))
@@ -128,8 +145,7 @@ if [ "$nag_hours_since" -lt "$COOLDOWN_HOURS" ]; then
   exit 0
 fi
 
-# --- All gates passed ---
-# Update nag timestamp
+# --- All gates passed: launch the dream ---
 touch "$NAG_FILE"
 
 if [ "$last_consolidated" -eq 0 ]; then
@@ -138,12 +154,28 @@ else
   age="${hours_since}h since last consolidation (threshold: ${MIN_HOURS}h)"
 fi
 
+# Detached so the 5s hook timeout is never in play, and so the dream outlives the
+# hook. Tool access is scoped to what dreamer.md actually uses; it only ever
+# writes inside the memory directory. Falls back to the old advisory notice when
+# there is no claude on PATH — hook environments differ, and a silent no-op is
+# the exact bug this replaces.
+if command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
+  DREAM_CHILD=1 nohup "$CLAUDE_BIN" -p \
+    "Read ${PLUGIN_ROOT}/agents/dreamer.md and follow it exactly. Memory directory: ${MEM_DIR}. Transcript directory: ${PROJECT_DIR}. Today's date: $(date +%F)." \
+    --model sonnet \
+    --allowedTools Read,Write,Edit,Glob,Grep,Bash \
+    >"$DREAM_STATE_DIR/last-run.log" 2>&1 </dev/null &
+  context="A background memory consolidation was launched for this project (${age}, ${session_count} new sessions). It runs in its own headless session — nothing to do here. Log: ${DREAM_STATE_DIR}/last-run.log"
+else
+  context="Memory consolidation is due: ${age}, ${session_count} new sessions (threshold: ${MIN_SESSIONS}). Use the dream:dream skill to consolidate after handling the user's request. Memory directory: ${MEM_DIR} — session transcripts: ${PROJECT_DIR}"
+fi
+
 # Output structured hook response
 cat <<HOOK_JSON
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "Memory consolidation is due: ${age}, ${session_count} new sessions (threshold: ${MIN_SESSIONS}). Use the dream:dream skill to consolidate after handling the user's request. Memory directory: ${MEM_DIR} — session transcripts: ${PROJECT_DIR}"
+    "additionalContext": "${context}"
   }
 }
 HOOK_JSON
