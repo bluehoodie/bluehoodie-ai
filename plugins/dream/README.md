@@ -79,6 +79,7 @@ The session count includes the session being started. SessionStart fires before 
 ```
 plugins/dream/
 ├── .claude-plugin/plugin.json   # manifest
+├── CHANGELOG.md
 ├── hooks/hooks.json             # SessionStart → dream.py gate (async)
 ├── scripts/dream.py             # gate | run | status | restore | reset
 ├── scripts/test_dream.py        # self-check
