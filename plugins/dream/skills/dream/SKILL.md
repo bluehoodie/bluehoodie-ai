@@ -57,6 +57,10 @@ Look for new information worth persisting. Sources in priority order:
    grep -rn "<narrow term>" <transcript-dir> --include="*.jsonl" | tail -50
    ```
 
+   If the prompt that started this dream lists the transcripts new since the last
+   one, those files are the ones worth searching — grep them by name instead of
+   the whole directory, which also holds sessions an earlier dream already mined.
+
 Do not exhaustively read transcripts. Look only for things you already suspect
 matter.
 

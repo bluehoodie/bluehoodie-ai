@@ -33,13 +33,16 @@ Session starts
   └─> SessionStart hook (async) runs `dream.py gate`
        ├─ Time gate:    < MIN_HOURS since last run  → exit
        ├─ Session gate: < MIN_SESSIONS new transcripts → exit
-       └─ both open → stamp the lock, launch `claude -p "/dream:dream"`
+       └─ both open → snapshot memory, stamp the lock, launch
+                      `claude -p "/dream:dream" + the new transcripts`
                       (detached, Sonnet, DREAM_CHILD=1, log to last-run.log)
 ```
 
 The gates live in the hook rather than in the launched session because spinning up that session is the cost they exist to avoid — a closed gate has to be a cheap process exit, not a model call. The hook is `async`, so it never blocks session start.
 
 An open gate **launches** the consolidation rather than suggesting one. Injected context is advisory, and a deferred instruction competes with whatever you actually asked for; across the 25 sessions where the old "consolidation is due" notice fired, it was acted on zero times.
+
+The launch prompt names the transcripts written since the last dream, newest first, capped at 20. The gate has already computed that set to evaluate the session gate, and handing it over turns "grep recent sessions" into a bounded instruction — the transcript directory also holds sessions an earlier dream already mined. The cap keeps a long gap from producing a prompt that is mostly filenames; the rest are still on disk, this only bounds what the dream is pointed at.
 
 The automatic and manual paths are the same path: both invoke `/dream:dream`. The launched session runs it headlessly against the project directory it was launched from, so it resolves exactly the paths you would.
 

@@ -208,6 +208,35 @@ s.gate()
 check("closed gates launch nothing", True, s.quiet())
 
 
+# --- What the dream is told to mine -----------------------------------------
+# The gate already knows which transcripts arrived since the last dream. Naming
+# them turns "grep recent sessions" into a bounded instruction.
+
+s = Sandbox(sessions=10)
+s.age_lock(time.time() - 2 * DAY)
+for i in range(5):
+    f = s.proj / f"session-{i}.jsonl"
+    os.utime(f, (LONG_AGO, LONG_AGO))
+s.gate()
+launched = s.dreamed()
+check("the launch names a transcript new since the last dream",
+      True, "session-9.jsonl" in launched)
+check("the launch does not name a transcript older than the last dream",
+      False, "session-0.jsonl" in launched)
+
+s = Sandbox(sessions=30)
+s.run("run")
+launched = s.dreamed()
+check("the transcript list is capped", 20, launched.count(".jsonl"))
+check("the cap says how many were left out", True, "20 of 30" in launched)
+
+s = Sandbox(sessions=0)
+s.run("run")
+launched = s.dreamed()
+check("with no new transcripts the dream is launched without a list",
+      False, "Transcripts new" in launched)
+
+
 # --- The snapshot -----------------------------------------------------------
 # A dream rewrites memory in place and that directory is under no version
 # control, so a bad merge or an over-eager prune is unrecoverable without one.
