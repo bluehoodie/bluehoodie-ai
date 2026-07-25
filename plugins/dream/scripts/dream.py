@@ -6,6 +6,7 @@ Verbs:
           consolidation when the time and session gates are both open.
   run     Launch one now, ignoring the gates.
   status  Print the gate state.
+  restore Undo the last dream from the snapshot taken when it launched.
   reset   Clear this project's state so the gates reopen.
 
 The gates live here rather than in the launched session because spinning up that
@@ -76,6 +77,15 @@ def launch(project, cwd):
     state = state_dir(project)
     state.mkdir(parents=True, exist_ok=True)
 
+    # A dream rewrites memory in place, and that directory is under no version
+    # control — a bad merge or an over-eager prune has nothing to fall back on.
+    # Snapshot it first so `restore` can undo the pass. Replace the old snapshot
+    # rather than copying over it: merging would resurrect files an earlier
+    # dream deleted on purpose.
+    backup = state / "memory-backup"
+    shutil.rmtree(backup, ignore_errors=True)
+    shutil.copytree(project / "memory", backup)
+
     # Stamp the lock at launch, not when the consolidation finishes. Closing the
     # time gate has to be a deterministic write; when it depended on the dreamer
     # remembering to run a `touch`, a run that forgot left every later session
@@ -144,6 +154,23 @@ def status():
     print("  session gate  %s  (>= %d)" % (sess_gate, MIN_SESSIONS))
     print("  memory        %d files%s" % (len(files), ", MEMORY.md %d lines" % lines if lines else ""))
 
+    backup = mtime(state_dir(project) / "memory-backup")
+    when = datetime.fromtimestamp(backup).strftime("%Y-%m-%d %H:%M") if backup else "none"
+    print("  snapshot      %s%s" % (when, "  (undo with dream.py restore)" if backup else ""))
+
+
+def restore():
+    project, _ = resolve({})
+    backup = state_dir(project) / "memory-backup"
+    if not backup.is_dir():
+        print("Dream — no snapshot for %s. Nothing to restore." % project.name)
+        return
+    memory = project / "memory"
+    shutil.rmtree(memory, ignore_errors=True)
+    shutil.copytree(backup, memory)
+    when = datetime.fromtimestamp(mtime(backup)).strftime("%Y-%m-%d %H:%M")
+    print("Dream — memory for %s restored to the snapshot from %s." % (project.name, when))
+
 
 def reset():
     project, _ = resolve({})
@@ -151,7 +178,7 @@ def reset():
     print("Dream state reset for %s. The gates reopen on the next session." % project.name)
 
 
-VERBS = {"gate": gate, "run": run, "status": status, "reset": reset}
+VERBS = {"gate": gate, "run": run, "status": status, "restore": restore, "reset": reset}
 
 if __name__ == "__main__":
     verb = sys.argv[1] if len(sys.argv) > 1 else "status"

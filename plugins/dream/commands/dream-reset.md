@@ -8,6 +8,8 @@ allowed-tools: Bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/dream.py" reset
 ```
 
-Show the output to the user. To reset *every* project instead, remove
+Show the output to the user. This also discards the memory snapshot, so the last
+dream can no longer be undone with `/dream:dream-restore`. To reset *every*
+project instead, remove
 `$HOME/.claude/dream-plugin-state` entirely — confirm first, since that discards
 every project's consolidation history.

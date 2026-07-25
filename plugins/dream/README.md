@@ -21,6 +21,7 @@ Dream fixes this with a four-phase pass — orient, gather, consolidate, prune �
 |---------|-------------|
 | `/dream:dream` | Consolidate now |
 | `/dream:dream-status` | Gate state, last run, memory stats |
+| `/dream:dream-restore` | Undo the last dream from its snapshot |
 | `/dream:dream-reset` | Clear state so the gates reopen |
 
 Asking in plain language — "dream", "consolidate my memory files" — invokes the same skill.
@@ -48,6 +49,8 @@ The lock is stamped **at launch**, not when the consolidation finishes. Closing 
 
 Having no memories yet is not a gate — a missing or empty `memory/` directory is the state of a project that has never dreamed, precisely the one whose first consolidation has memories to generate. The launch creates the directory.
 
+The launch snapshots `memory/` into the state directory before the dream starts. A dream rewrites memory in place and that directory is under no version control, so a bad merge or an over-eager prune would otherwise be unrecoverable — `/dream:dream-restore` puts the snapshot back. There is one snapshot per project, replaced (not merged into) on every launch: merging would resurrect files an earlier dream deleted on purpose. Restoring discards everything written since the dream launched, including memories saved afterwards, and `/dream:dream-reset` deletes the snapshot along with the rest of the state.
+
 The session count includes the session being started. SessionStart fires before Claude Code writes that session's transcript, so counting only what is on disk would open the gate a session late.
 
 ## Configuration
@@ -65,6 +68,7 @@ The session count includes the session being started. SessionStart fires before 
 | File | Purpose |
 |------|---------|
 | `.consolidate-lock` | mtime = last launch; drives both gates |
+| `memory-backup/` | copy of `memory/` as it stood when the last dream launched |
 | `last-run.log` | output of the most recent dream |
 
 ## Project structure
@@ -73,10 +77,11 @@ The session count includes the session being started. SessionStart fires before 
 plugins/dream/
 ├── .claude-plugin/plugin.json   # manifest
 ├── hooks/hooks.json             # SessionStart → dream.py gate (async)
-├── scripts/dream.py             # gate | run | status | reset
+├── scripts/dream.py             # gate | run | status | restore | reset
 ├── scripts/test_dream.py        # self-check
 ├── skills/dream/SKILL.md        # the four-phase consolidation — the only copy
 ├── commands/dream-status.md
+├── commands/dream-restore.md
 └── commands/dream-reset.md
 ```
 

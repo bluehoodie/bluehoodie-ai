@@ -208,6 +208,44 @@ s.gate()
 check("closed gates launch nothing", True, s.quiet())
 
 
+# --- The snapshot -----------------------------------------------------------
+# A dream rewrites memory in place and that directory is under no version
+# control, so a bad merge or an over-eager prune is unrecoverable without one.
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("before")
+s.gate()
+s.dreamed()
+check("the launch snapshots memory before dreaming",
+      "before", (s.state / "memory-backup" / "MEMORY.md").read_text())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("before")
+s.run("run")
+(s.proj / "memory" / "MEMORY.md").write_text("after the dream")
+(s.proj / "memory" / "invented.md").write_text("the dream added this")
+r = s.run("restore")
+check("restore puts the snapshot back",
+      "before", (s.proj / "memory" / "MEMORY.md").read_text())
+check("restore drops what the dream added",
+      False, (s.proj / "memory" / "invented.md").exists())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "gone.md").write_text("dropped by the first dream")
+s.run("run")
+(s.proj / "memory" / "gone.md").unlink()
+s.run("run")
+check("a later snapshot replaces the earlier one, it does not merge with it",
+      False, (s.state / "memory-backup" / "gone.md").exists())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("never dreamed")
+r = s.run("restore")
+check("restore without a snapshot leaves memory alone",
+      "never dreamed", (s.proj / "memory" / "MEMORY.md").read_text())
+check("restore without a snapshot says so", True, "no snapshot" in r.stdout.lower())
+
+
 # --- run / reset / status ---------------------------------------------------
 
 s = Sandbox(sessions=0)
@@ -228,5 +266,13 @@ check("status reports open gates on a cold project", True, "OPEN" in s.run("stat
 s = Sandbox(sessions=10)
 s.age_lock(time.time())
 check("status reports a closed time gate", True, "CLOSED" in s.run("status").stdout)
+
+s = Sandbox(sessions=10)
+check("status reports no snapshot before the first dream",
+      True, "snapshot      none" in s.run("status").stdout)
+s.run("run")
+s.dreamed()
+check("status reports the snapshot once one exists",
+      False, "snapshot      none" in s.run("status").stdout)
 
 sys.exit(FAILED)
