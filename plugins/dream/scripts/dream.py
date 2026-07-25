@@ -6,6 +6,7 @@ Verbs:
           consolidation when the time and session gates are both open.
   run     Launch one now, ignoring the gates.
   status  Print the gate state.
+  restore Undo the last dream from the snapshot taken when it launched.
   reset   Clear this project's state so the gates reopen.
 
 The gates live here rather than in the launched session because spinning up that
@@ -41,6 +42,10 @@ CLAUDE_BIN = os.environ.get("DREAM_CLAUDE_BIN") or "claude"
 # so the automatic and manual dreams cannot drift apart.
 PROMPT = "/dream:dream"
 
+# Transcripts named in the launch prompt. The rest are still on disk for the
+# dream to find; this only bounds what it is pointed at.
+MAX_SESSIONS = 20
+
 
 def resolve(payload):
     """Return (transcript directory, launch directory) for this session."""
@@ -63,18 +68,36 @@ def mtime(path):
     return path.stat().st_mtime if path.exists() else 0
 
 
+def new_sessions(project):
+    """Transcripts written since the last consolidation, newest first."""
+    last = mtime(state_dir(project) / ".consolidate-lock")
+    fresh = [f for f in project.glob("*.jsonl") if f.stat().st_mtime > last]
+    return sorted(fresh, key=lambda f: f.stat().st_mtime, reverse=True)
+
+
 def gates(project, current_session=0):
     """Return (hours since last consolidation, new sessions since it)."""
     last = mtime(state_dir(project) / ".consolidate-lock")
     hours = (time.time() - last) / 3600 if last else float("inf")
-    sessions = sum(1 for f in project.glob("*.jsonl") if f.stat().st_mtime > last)
-    return hours, sessions + current_session
+    return hours, len(new_sessions(project)) + current_session
 
 
 def launch(project, cwd):
     (project / "memory").mkdir(parents=True, exist_ok=True)
     state = state_dir(project)
     state.mkdir(parents=True, exist_ok=True)
+
+    # Read the list before stamping the lock — the stamp is what makes these old.
+    fresh = new_sessions(project)
+
+    # A dream rewrites memory in place, and that directory is under no version
+    # control — a bad merge or an over-eager prune has nothing to fall back on.
+    # Snapshot it first so `restore` can undo the pass. Replace the old snapshot
+    # rather than copying over it: merging would resurrect files an earlier
+    # dream deleted on purpose.
+    backup = state / "memory-backup"
+    shutil.rmtree(backup, ignore_errors=True)
+    shutil.copytree(project / "memory", backup)
 
     # Stamp the lock at launch, not when the consolidation finishes. Closing the
     # time gate has to be a deterministic write; when it depended on the dreamer
@@ -84,9 +107,21 @@ def launch(project, cwd):
 
     if not shutil.which(CLAUDE_BIN):
         return
+
+    # Name the transcripts the dream is there to mine. The gate already knows
+    # which ones arrived since the last dream, and handing them over turns "grep
+    # recent sessions" into a bounded instruction. Capped and newest-first,
+    # because a prompt listing hundreds of filenames is noise, not context.
+    prompt = PROMPT
+    if fresh:
+        prompt += "\n\nTranscripts new since the last dream, newest first (%d of %d): %s" % (
+            min(len(fresh), MAX_SESSIONS), len(fresh),
+            " ".join(f.name for f in fresh[:MAX_SESSIONS]),
+        )
+
     with open(state / "last-run.log", "w") as log:
         subprocess.Popen(
-            [CLAUDE_BIN, "-p", PROMPT, "--model", "sonnet",
+            [CLAUDE_BIN, "-p", prompt, "--model", "sonnet",
              "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash"],
             cwd=cwd if os.path.isdir(cwd) else None,
             env={**os.environ, "DREAM_CHILD": "1"},
@@ -144,6 +179,23 @@ def status():
     print("  session gate  %s  (>= %d)" % (sess_gate, MIN_SESSIONS))
     print("  memory        %d files%s" % (len(files), ", MEMORY.md %d lines" % lines if lines else ""))
 
+    backup = mtime(state_dir(project) / "memory-backup")
+    when = datetime.fromtimestamp(backup).strftime("%Y-%m-%d %H:%M") if backup else "none"
+    print("  snapshot      %s%s" % (when, "  (undo with dream.py restore)" if backup else ""))
+
+
+def restore():
+    project, _ = resolve({})
+    backup = state_dir(project) / "memory-backup"
+    if not backup.is_dir():
+        print("Dream — no snapshot for %s. Nothing to restore." % project.name)
+        return
+    memory = project / "memory"
+    shutil.rmtree(memory, ignore_errors=True)
+    shutil.copytree(backup, memory)
+    when = datetime.fromtimestamp(mtime(backup)).strftime("%Y-%m-%d %H:%M")
+    print("Dream — memory for %s restored to the snapshot from %s." % (project.name, when))
+
 
 def reset():
     project, _ = resolve({})
@@ -151,7 +203,7 @@ def reset():
     print("Dream state reset for %s. The gates reopen on the next session." % project.name)
 
 
-VERBS = {"gate": gate, "run": run, "status": status, "reset": reset}
+VERBS = {"gate": gate, "run": run, "status": status, "restore": restore, "reset": reset}
 
 if __name__ == "__main__":
     verb = sys.argv[1] if len(sys.argv) > 1 else "status"

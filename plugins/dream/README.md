@@ -21,6 +21,7 @@ Dream fixes this with a four-phase pass — orient, gather, consolidate, prune �
 |---------|-------------|
 | `/dream:dream` | Consolidate now |
 | `/dream:dream-status` | Gate state, last run, memory stats |
+| `/dream:dream-restore` | Undo the last dream from its snapshot |
 | `/dream:dream-reset` | Clear state so the gates reopen |
 
 Asking in plain language — "dream", "consolidate my memory files" — invokes the same skill.
@@ -32,13 +33,16 @@ Session starts
   └─> SessionStart hook (async) runs `dream.py gate`
        ├─ Time gate:    < MIN_HOURS since last run  → exit
        ├─ Session gate: < MIN_SESSIONS new transcripts → exit
-       └─ both open → stamp the lock, launch `claude -p "/dream:dream"`
+       └─ both open → snapshot memory, stamp the lock, launch
+                      `claude -p "/dream:dream" + the new transcripts`
                       (detached, Sonnet, DREAM_CHILD=1, log to last-run.log)
 ```
 
 The gates live in the hook rather than in the launched session because spinning up that session is the cost they exist to avoid — a closed gate has to be a cheap process exit, not a model call. The hook is `async`, so it never blocks session start.
 
 An open gate **launches** the consolidation rather than suggesting one. Injected context is advisory, and a deferred instruction competes with whatever you actually asked for; across the 25 sessions where the old "consolidation is due" notice fired, it was acted on zero times.
+
+The launch prompt names the transcripts written since the last dream, newest first, capped at 20. The gate has already computed that set to evaluate the session gate, and handing it over turns "grep recent sessions" into a bounded instruction — the transcript directory also holds sessions an earlier dream already mined. The cap keeps a long gap from producing a prompt that is mostly filenames; the rest are still on disk, this only bounds what the dream is pointed at.
 
 The automatic and manual paths are the same path: both invoke `/dream:dream`. The launched session runs it headlessly against the project directory it was launched from, so it resolves exactly the paths you would.
 
@@ -47,6 +51,8 @@ The lock is stamped **at launch**, not when the consolidation finishes. Closing 
 `DREAM_CHILD=1` on the launched session makes its own `gate` a no-op. It is Claude Code, so it fires SessionStart too, and without the guard that recurses without bound.
 
 Having no memories yet is not a gate — a missing or empty `memory/` directory is the state of a project that has never dreamed, precisely the one whose first consolidation has memories to generate. The launch creates the directory.
+
+The launch snapshots `memory/` into the state directory before the dream starts. A dream rewrites memory in place and that directory is under no version control, so a bad merge or an over-eager prune would otherwise be unrecoverable — `/dream:dream-restore` puts the snapshot back. There is one snapshot per project, replaced (not merged into) on every launch: merging would resurrect files an earlier dream deleted on purpose. Restoring discards everything written since the dream launched, including memories saved afterwards, and `/dream:dream-reset` deletes the snapshot along with the rest of the state.
 
 The session count includes the session being started. SessionStart fires before Claude Code writes that session's transcript, so counting only what is on disk would open the gate a session late.
 
@@ -65,6 +71,7 @@ The session count includes the session being started. SessionStart fires before 
 | File | Purpose |
 |------|---------|
 | `.consolidate-lock` | mtime = last launch; drives both gates |
+| `memory-backup/` | copy of `memory/` as it stood when the last dream launched |
 | `last-run.log` | output of the most recent dream |
 
 ## Project structure
@@ -73,10 +80,11 @@ The session count includes the session being started. SessionStart fires before 
 plugins/dream/
 ├── .claude-plugin/plugin.json   # manifest
 ├── hooks/hooks.json             # SessionStart → dream.py gate (async)
-├── scripts/dream.py             # gate | run | status | reset
+├── scripts/dream.py             # gate | run | status | restore | reset
 ├── scripts/test_dream.py        # self-check
 ├── skills/dream/SKILL.md        # the four-phase consolidation — the only copy
 ├── commands/dream-status.md
+├── commands/dream-restore.md
 └── commands/dream-reset.md
 ```
 

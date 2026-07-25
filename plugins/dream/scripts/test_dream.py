@@ -208,6 +208,73 @@ s.gate()
 check("closed gates launch nothing", True, s.quiet())
 
 
+# --- What the dream is told to mine -----------------------------------------
+# The gate already knows which transcripts arrived since the last dream. Naming
+# them turns "grep recent sessions" into a bounded instruction.
+
+s = Sandbox(sessions=10)
+s.age_lock(time.time() - 2 * DAY)
+for i in range(5):
+    f = s.proj / f"session-{i}.jsonl"
+    os.utime(f, (LONG_AGO, LONG_AGO))
+s.gate()
+launched = s.dreamed()
+check("the launch names a transcript new since the last dream",
+      True, "session-9.jsonl" in launched)
+check("the launch does not name a transcript older than the last dream",
+      False, "session-0.jsonl" in launched)
+
+s = Sandbox(sessions=30)
+s.run("run")
+launched = s.dreamed()
+check("the transcript list is capped", 20, launched.count(".jsonl"))
+check("the cap says how many were left out", True, "20 of 30" in launched)
+
+s = Sandbox(sessions=0)
+s.run("run")
+launched = s.dreamed()
+check("with no new transcripts the dream is launched without a list",
+      False, "Transcripts new" in launched)
+
+
+# --- The snapshot -----------------------------------------------------------
+# A dream rewrites memory in place and that directory is under no version
+# control, so a bad merge or an over-eager prune is unrecoverable without one.
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("before")
+s.gate()
+s.dreamed()
+check("the launch snapshots memory before dreaming",
+      "before", (s.state / "memory-backup" / "MEMORY.md").read_text())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("before")
+s.run("run")
+(s.proj / "memory" / "MEMORY.md").write_text("after the dream")
+(s.proj / "memory" / "invented.md").write_text("the dream added this")
+r = s.run("restore")
+check("restore puts the snapshot back",
+      "before", (s.proj / "memory" / "MEMORY.md").read_text())
+check("restore drops what the dream added",
+      False, (s.proj / "memory" / "invented.md").exists())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "gone.md").write_text("dropped by the first dream")
+s.run("run")
+(s.proj / "memory" / "gone.md").unlink()
+s.run("run")
+check("a later snapshot replaces the earlier one, it does not merge with it",
+      False, (s.state / "memory-backup" / "gone.md").exists())
+
+s = Sandbox(sessions=10)
+(s.proj / "memory" / "MEMORY.md").write_text("never dreamed")
+r = s.run("restore")
+check("restore without a snapshot leaves memory alone",
+      "never dreamed", (s.proj / "memory" / "MEMORY.md").read_text())
+check("restore without a snapshot says so", True, "no snapshot" in r.stdout.lower())
+
+
 # --- run / reset / status ---------------------------------------------------
 
 s = Sandbox(sessions=0)
@@ -228,5 +295,13 @@ check("status reports open gates on a cold project", True, "OPEN" in s.run("stat
 s = Sandbox(sessions=10)
 s.age_lock(time.time())
 check("status reports a closed time gate", True, "CLOSED" in s.run("status").stdout)
+
+s = Sandbox(sessions=10)
+check("status reports no snapshot before the first dream",
+      True, "snapshot      none" in s.run("status").stdout)
+s.run("run")
+s.dreamed()
+check("status reports the snapshot once one exists",
+      False, "snapshot      none" in s.run("status").stdout)
 
 sys.exit(FAILED)
