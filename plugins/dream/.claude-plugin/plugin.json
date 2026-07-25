@@ -1,7 +1,7 @@
 {
   "name": "dream",
   "description": "Periodic memory consolidation — review, deduplication, pruning, and reindexing of Claude Code's file-based memory system.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "license": "MIT",
   "author": {
     "name": "Colin Dickson",
