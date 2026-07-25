@@ -4,7 +4,9 @@ Periodic memory consolidation for [Claude Code](https://code.claude.com/docs/en/
 
 ## The Problem
 
-Claude Code's auto-memory saves context across sessions into `~/.claude/projects/<project>/memory/`, where `<project>` is the launch directory with every `/` replaced by `-`. Over time this suffers from **drift** (facts go stale), **duplication** (sessions record overlapping information), **bloat** (MEMORY.md outgrows its usefulness), **date rot** ("last week" loses meaning), and **missing signal** (discoveries worth keeping never get written down).
+Claude Code's auto-memory saves context across sessions into `~/.claude/projects/<project>/memory/`, where `<project>` is the launch directory with every `/` replaced by `-`. Nothing prunes it — the folder only ever grows. Over time this suffers from **drift** (facts go stale), **duplication** (sessions record overlapping information), **bloat** (MEMORY.md outgrows its usefulness), **date rot** ("last week" loses meaning), and **missing signal** (discoveries worth keeping never get written down).
+
+That unbounded growth is the reason this plugin exists. A memory folder that accumulates forever stops being memory and becomes an archive; consolidation is what keeps what's in there relevant.
 
 Dream fixes this with a four-phase pass — orient, gather, consolidate, prune — run automatically or on demand.
 
@@ -93,9 +95,16 @@ Run `python3 scripts/test_dream.py` for the self-check. It uses a sandbox `$HOME
 
 ## Background
 
-Claude Code has a built-in dream feature behind feature flags. This plugin reproduces its published four-phase consolidation prompt using the public plugin API — a hook that evaluates the gates and launches the work, and a skill holding the prompt. The consolidation is pinned to Sonnet and runs in its own detached session, keeping it off an expensive session model and out of your context window. It needs no feature flags.
+Claude Code once shipped a dream feature, since removed. This plugin replaces it, reproducing the published four-phase consolidation prompt using the public plugin API — a hook that evaluates the gates and launches the work, and a skill holding the prompt. The consolidation is pinned to Sonnet and runs in its own detached session, keeping it off an expensive session model and out of your context window. It needs no feature flags.
+
+**If Anthropic ever ships dream again, uninstall this plugin.** A first-party version integrates with the harness in ways a plugin cannot, and running both would consolidate the same memories twice.
 
 Model and tools are set on the launch in `dream.py`. Haiku is not recommended — staleness checking and merge-vs-dedupe are judgment calls.
+
+## References
+
+- [Auto-dream](https://claudefa.st/blog/guide/mechanics/auto-dream) — the original Claude Code feature this plugin replaces
+- [Dreams](https://platform.claude.com/docs/en/managed-agents/dreams) — how Anthropic implements dreams today, in Managed Agents
 
 ## License
 
