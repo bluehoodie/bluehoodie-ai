@@ -12,12 +12,6 @@
       "description": "An artificial endocrine system: a persistent, slow-varying affective state that biases HOW Claude responds, never WHAT.",
       "source": "./plugins/humors",
       "category": "research"
-    },
-    {
-      "name": "dream",
-      "description": "Periodic memory consolidation — review, deduplication, pruning, and reindexing of Claude Code's file-based memory system.",
-      "source": "./plugins/dream",
-      "category": "research"
     }
   ]
 }
