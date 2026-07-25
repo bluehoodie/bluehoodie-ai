@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.sh\"",
-            "timeout": 5
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dream.py\" gate",
+            "async": true
           }
         ]
       }
